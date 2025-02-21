@@ -1,25 +1,35 @@
-from django.shortcuts import render
-from .models import User
-from .models import DonationCampaign
+from rest_framework import generics
+from rest_framework.response import Response
+from rest_framework import status
 from django.http import JsonResponse
+from .models import DonationCampaign
+from .serializers import DonationCampaignSerializer
+from rest_framework import generics
+from rest_framework.renderers import JSONRenderer
 
-# Create your views here.
-def create_fundraising():
-    pass
+class CreateDonationCampaignView(generics.CreateAPIView):
+    queryset = DonationCampaign.objects.all()
+    serializer_class = DonationCampaignSerializer
+    renderer_classes = [JSONRenderer]
 
-def get_fundraising():
-    pass
-    
-def update_fundraising():
-    pass
+class ListFundraisingsView(generics.ListAPIView):
+    queryset = DonationCampaign.objects.all()
+    serializer_class = DonationCampaignSerializer
 
-def delete_fundraising():
-    pass
+class RetrieveFundraisingView(generics.RetrieveAPIView):
+    queryset = DonationCampaign.objects.all()
+    serializer_class = DonationCampaignSerializer
+    lookup_field = "id"  
 
-def get_list_fundraisings():
-    pass
+class UpdateFundraisingView(generics.UpdateAPIView):
+    queryset = DonationCampaign.objects.all()
+    serializer_class = DonationCampaignSerializer
+    lookup_field = "id"
 
-
+class DeleteFundraisingView(generics.DestroyAPIView):
+    queryset = DonationCampaign.objects.all()
+    serializer_class = DonationCampaignSerializer
+    lookup_field = "id"
 
 def campaign_list(request):
     return JsonResponse({"message": "Список зборів ще не реалізований"})
