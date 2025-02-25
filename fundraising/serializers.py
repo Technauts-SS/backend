@@ -50,13 +50,10 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
         if not any(data.get(field) for field in ['evidence', 'evidence_file', 'evidence_link']):
             raise serializers.ValidationError("Необхідно надати хоча б один доказ: текст, файл або посилання.")
         return data
-
-
-    def validate_social_links(self, social_links):
-        if not social_links:
-            return social_links  # Якщо поле пусте, просто повертаємо його
         
-        if not re.match(r'https?://', social_links):
-            raise serializers.ValidationError("Невірне посилання на соціальну мережу.")
-        
-        return social_links
+    def validate_category(self, category):
+        """Перевіряє, чи вибрана категорія є допустимою."""
+        valid_categories = dict(DonationCampaign.CATEGORY_CHOICES).keys()
+        if category not in valid_categories:
+            return "other"  # Якщо категорія невідома, ставимо 'other'
+        return category
