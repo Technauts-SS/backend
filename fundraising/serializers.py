@@ -4,6 +4,7 @@ import re
 
 
 class DonationCampaignSerializer(serializers.ModelSerializer):
+    image = serializers.ImageField(required=False) 
     class Meta:
         model = DonationCampaign
         fields = '__all__'

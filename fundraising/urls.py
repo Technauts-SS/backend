@@ -1,4 +1,6 @@
 from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
 from .views import (
     CreateDonationCampaignView,
     ListFundraisingsView,
@@ -13,4 +15,4 @@ urlpatterns = [
     path("fundraisers/<int:id>/", RetrieveFundraisingView.as_view(), name="get_fundraising"),
     path("fundraisers/<int:id>/update/", UpdateFundraisingView.as_view(), name="update_fundraising"),
     path("fundraisers/<int:id>/delete/", DeleteFundraisingView.as_view(), name="delete_fundraising"),
-]
+]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
