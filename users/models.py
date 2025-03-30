@@ -1,9 +1,19 @@
+from django.contrib.auth.models import AbstractUser
 from django.db import models
 
-# Create your models here.
-class User(models.Model):
-    full_name = models.CharField(max_length=200)  
-    email = models.EmailField(unique=True)  
-    phone_number = models.CharField(max_length=15) 
-    social_links = models.URLField(blank=True, null=True) 
-    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True) 
+class User(AbstractUser):
+    full_name = models.CharField(max_length=255, blank=True)
+    phone_number = models.CharField(max_length=20, unique=True)
+    social_links = models.URLField(blank=True, null=True)
+    
+    # Poverride email to be used for authentication
+    email = models.EmailField(unique=True)
+
+    # Remove username field
+    username = None  # Remove the username field
+
+    USERNAME_FIELD = 'email'  # Set email as the username field
+    REQUIRED_FIELDS = ['full_name', 'phone_number']  # Exclude email from required fields
+
+    def __str__(self):
+        return self.email

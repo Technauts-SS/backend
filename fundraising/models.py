@@ -1,19 +1,18 @@
 from django.db import models
 from django.utils import timezone
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+from rest_framework.permissions import AllowAny
+from django.conf import settings
 
 class DonationCampaign(models.Model):
+    permission_classes = [AllowAny]
+
     CATEGORY_CHOICES = [
         ("health", "Здоров'я"),
         ("social", "Соціальна допомога"),
         ("education", "Освіта та наука"),
         ("ecology", "Екологія та тварини"),
         ("other", "Інше"),
-    ]
-    
-    URGENCY_CHOICES = [
-        ("urgent", "Терміново"),
-        ("non-urgent", "Не терміново"),
     ]
     
     STATUS_CHOICES = [
@@ -30,7 +29,6 @@ class DonationCampaign(models.Model):
     contact_info = models.CharField(max_length=200, verbose_name="Контактна інформація")
     description = models.TextField(verbose_name="Опис")
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default="other", verbose_name="Категорія")
-    urgency = models.CharField(max_length=20, choices=URGENCY_CHOICES, default="non-urgent", verbose_name="Терміновість")
     location = models.CharField(max_length=100, blank=True, null=True, verbose_name="Місцезнаходження")
     
     # Медіа та файли
@@ -49,8 +47,7 @@ class DonationCampaign(models.Model):
     evidence_file = models.FileField(upload_to='evidence/', blank=True, null=True, verbose_name="Файл підтвердження")
     evidence_link = models.URLField(blank=True, null=True, verbose_name="Посилання на підтвердження")
     
-    # Зв'язки та метадані
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='campaigns', null=True, verbose_name="Користувач")
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft", verbose_name="Статус")
     created_at = models.DateTimeField(default=timezone.now, verbose_name="Дата створення")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата оновлення")

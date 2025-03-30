@@ -72,20 +72,6 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
             return "other"  # Якщо категорія невідома, ставимо 'other'
         return category
     
-    def validate_urgency(self, urgency):
-        """Перевіряє правильність значення терміновості."""
-        valid_urgencies = dict(DonationCampaign.URGENCY_CHOICES).keys()
-        if urgency not in valid_urgencies:
-            return "non-urgent"  # За замовчуванням - не терміново
-        return urgency
-    
-    def validate_status(self, status):
-        """Перевіряє правильність статусу кампанії."""
-        valid_statuses = dict(DonationCampaign.STATUS_CHOICES).keys()
-        if status not in valid_statuses:
-            return "draft"  # За замовчуванням - чернетка
-        return status
-    
     def validate_help_type(self, help_type):
         """Перевіряє тип допомоги."""
         valid_types = ["money", "volunteer", "both"]

@@ -21,7 +21,8 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include('fundraising.urls')),
+    path('api/', include('fundraising.urls')),  # Змінили префікс на api/fundraising
+    path('api/users/', include('users.urls')),  # Змінили префікс на api/users
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
