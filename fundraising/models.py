@@ -3,6 +3,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from rest_framework.permissions import AllowAny
 from django.conf import settings
+import os
 
 class DonationCampaign(models.Model):
     permission_classes = [AllowAny]
@@ -25,11 +26,19 @@ class DonationCampaign(models.Model):
     
     # Основна інформація
     title = models.CharField(max_length=200, verbose_name="Назва кампанії")
-    creator_name = models.CharField(max_length=100, verbose_name="Ім'я організатора")
-    contact_info = models.CharField(max_length=200, verbose_name="Контактна інформація")
     description = models.TextField(verbose_name="Опис")
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default="other", verbose_name="Категорія")
     location = models.CharField(max_length=100, blank=True, null=True, verbose_name="Місцезнаходження")
+    
+    creator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='created_campaigns',
+        verbose_name="Створив"
+    )
+    contact_info = models.CharField(max_length=200, verbose_name="Контактна інформація")
     
     # Медіа та файли
     image = models.ImageField(upload_to='campaign_images/', blank=True, null=True, verbose_name="Зображення")
@@ -38,16 +47,19 @@ class DonationCampaign(models.Model):
     goal_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Цільова сума")
     current_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Зібрана сума")
     donation_link = models.URLField(blank=True, null=True, verbose_name="Посилання для пожертв")
-    help_type = models.CharField(max_length=50, choices=[("money", "Фінансова допомога"), 
-                                                         ("volunteer", "Волонтерська допомога"),
-                                                         ("both", "Обидва типи")], default="money", verbose_name="Тип допомоги")
+    help_type = models.CharField(
+        max_length=50,
+        choices=[("money", "Фінансова допомога"), ("volunteer", "Волонтерська допомога"), ("both", "Обидва типи")],
+        default="money",
+        verbose_name="Тип допомоги"
+    )
     
     # Підтвердження
     evidence = models.TextField(blank=True, null=True, verbose_name="Опис підтвердження")
     evidence_file = models.FileField(upload_to='evidence/', blank=True, null=True, verbose_name="Файл підтвердження")
     evidence_link = models.URLField(blank=True, null=True, verbose_name="Посилання на підтвердження")
     
-
+    # Статус та дати
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft", verbose_name="Статус")
     created_at = models.DateTimeField(default=timezone.now, verbose_name="Дата створення")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата оновлення")
@@ -60,6 +72,26 @@ class DonationCampaign(models.Model):
     
     def __str__(self):
         return self.title
+    
+    def delete(self, *args, **kwargs):
+        """Видалення моделі разом з пов'язаними файлами"""
+        # Видаляємо файл зображення
+        if self.image:
+            if os.path.isfile(self.image.path):
+                os.remove(self.image.path)
+        
+        # Видаляємо файл доказу
+        if self.evidence_file:
+            if os.path.isfile(self.evidence_file.path):
+                os.remove(self.evidence_file.path)
+        
+        # Викликаємо оригінальний метод delete
+        super().delete(*args, **kwargs)
+    
+    @property
+    def creator_name(self):
+        """Властивість для отримання імені творця"""
+        return self.creator.full_name or self.creator.username
     
     def progress_percentage(self):
         if self.goal_amount == 0:
