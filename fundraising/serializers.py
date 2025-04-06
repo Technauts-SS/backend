@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import DonationCampaign
+from .models import DonationCampaign, MockDonation
 import re
 from django.utils import timezone
 
@@ -51,3 +51,26 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
         """Перевизначений метод create для автоматичного встановлення creator"""
         validated_data['creator'] = self.context['request'].user
         return super().create(validated_data)
+    
+class MockDonationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MockDonation
+        fields = ['id', 'campaign', 'amount', 'status', 'mock_card_number', 'created_at']
+        extra_kwargs = {
+            'mock_card_number': {'write_only': True},
+            'status': {'read_only': True},
+        }
+    
+    def validate_mock_card_number(self, value):
+        if not value.isdigit() or len(value) != 16:
+            raise serializers.ValidationError("Номер картки повинен містити 16 цифр")
+        return value
+    
+    def create(self, validated_data):
+        donation = MockDonation.objects.create(**validated_data)
+        donation.process_payment()
+        return donation
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Сума донату повинна бути більше 0")
+        return value

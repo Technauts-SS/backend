@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import DonationCampaign
+from .models import DonationCampaign, MockDonation
 
 @admin.register(DonationCampaign)
 class DonationCampaignAdmin(admin.ModelAdmin):
@@ -32,3 +32,19 @@ class DonationCampaignAdmin(admin.ModelAdmin):
             self.message_user(request, "Кампанію успішно видалено")
         except Exception as e:
             self.message_user(request, f"Помилка: {str(e)}", level='ERROR')
+            
+@admin.register(MockDonation)
+class MockDonationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'campaign', 'user', 'amount', 'status')
+    list_filter = ('status', 'campaign')
+    actions = ['mark_as_success', 'mark_as_failed']
+    
+    def mark_as_success(self, request, queryset):
+        for donation in queryset:
+            donation.status = 'success'
+            donation.save()
+            donation.campaign.current_amount += donation.amount
+            donation.campaign.save()
+    
+    def mark_as_failed(self, request, queryset):
+        queryset.update(status='failed')

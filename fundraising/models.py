@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.permissions import AllowAny
 from django.conf import settings
 import os
+from django.db.models import Sum
 
 class DonationCampaign(models.Model):
     permission_classes = [AllowAny]
@@ -116,3 +117,37 @@ class DonationCampaign(models.Model):
         elif self.status != 'paused':
             self.status = 'active'
         self.save()
+    
+    def update_stats(self):
+        total = self.donations.filter(status='success').aggregate(
+            Sum('amount')
+        )['amount__sum'] or 0
+        self.current_amount = total
+        self.save()
+        self.update_status()  # Оновити статус кампанії
+    
+class MockDonation(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'В очікуванні'),
+        ('success', 'Успішно'),
+        ('failed', 'Не вдалося'),
+    ]
+    
+    campaign = models.ForeignKey(DonationCampaign, on_delete=models.CASCADE, related_name='donations')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    mock_card_number = models.CharField(max_length=16)
+    
+    def process_payment(self):
+        """Мок-обробка платежу на основі тестової картки"""
+        if self.mock_card_number.startswith('4242'):
+            self.status = 'success'
+            self.campaign.current_amount += self.amount
+            self.campaign.save()
+        else:
+            self.status = 'failed'
+        self.save()
+        return self.status

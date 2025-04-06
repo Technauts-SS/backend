@@ -1,15 +1,13 @@
 from django.urls import path
 from .views import (
     CreateDonationCampaignView,
+    CreateDonationView,
     ListFundraisingsView,
     UserFundraisingsView,
     RetrieveFundraisingView,
     UpdateFundraisingView,
     DeleteFundraisingView,
-)
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
+    CampaignDonationsListView  # Новий імпорт
 )
 
 urlpatterns = [
@@ -19,8 +17,6 @@ urlpatterns = [
     path('fundraisers/<int:id>/', RetrieveFundraisingView.as_view(), name='fundraiser-detail'),
     path('fundraisers/<int:id>/update/', UpdateFundraisingView.as_view(), name='fundraiser-update'),
     path('fundraisers/<int:id>/delete/', DeleteFundraisingView.as_view(), name='fundraiser-delete'),
-    
-    # JWT Authentication
-    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('fundraisers/<int:campaign_id>/donations/', CampaignDonationsListView.as_view(), name='campaign-donations'),  # Новий маршрут
+    path('donate/', CreateDonationView.as_view(), name='create-donation')
 ]
