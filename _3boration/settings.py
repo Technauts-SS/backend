@@ -27,7 +27,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
-
+AUTH_USER_MODEL = 'users.User' 
 # Application definition
 
 INSTALLED_APPS = [
@@ -39,7 +39,28 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
 ]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+}
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000", 
+   # "https://yourfrontend.com",  # Продакшен-домен
+]
+CORS_ALLOW_CREDENTIALS = True
+ROOT_URLCONF = '_3boration.urls'
+
+AUTHENTICATION_BACKENDS = [
+    'users.authentication.EmailBackend',  
+    'django.contrib.auth.backends.ModelBackend', 
+]
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
