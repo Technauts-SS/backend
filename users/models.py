@@ -14,9 +14,15 @@ class UserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('role', User.Role.ADMIN)
         return self.create_user(email, password, **extra_fields)
 
 class User(AbstractUser):
+    class Role(models.TextChoices):
+        USER = 'user', 'Regular User'
+        MODERATOR = 'moderator', 'Moderator'
+        ADMIN = 'admin', 'Admin'
+
     full_name = models.CharField(max_length=255, blank=True)
     phone_number = models.CharField(max_length=20, unique=True)
     social_links = models.URLField(blank=True, null=True)
@@ -26,11 +32,16 @@ class User(AbstractUser):
         null=True,
         max_length=255
     )
-    bio = models.TextField(blank=True, null=True)  # Додане поле біо
-    
+    bio = models.TextField(blank=True, null=True)
     email = models.EmailField(unique=True)
     username = None
-    
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.USER
+    )
+    is_verified = models.BooleanField(default=False)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['full_name', 'phone_number']
     
@@ -40,7 +51,7 @@ class User(AbstractUser):
         return self.email
     
     def save(self, *args, **kwargs):
-        # Виправлено з profile_image на image
+        # Обробка зображення
         if self.pk and self.image:
             try:
                 old_user = User.objects.get(pk=self.pk)
@@ -48,4 +59,20 @@ class User(AbstractUser):
                     old_user.image.delete(save=False)
             except User.DoesNotExist:
                 pass
+        
+        # Викликаємо оригінальний save
         super().save(*args, **kwargs)
+        
+        # Оновлюємо кешовані властивості
+        if hasattr(self, '_is_admin'):
+            del self._is_admin
+        if hasattr(self, '_is_moderator'):
+            del self._is_moderator
+        
+    @property
+    def is_admin(self):
+        return self.role == self.Role.ADMIN or self.is_superuser
+    
+    @property
+    def is_moderator(self):
+        return self.role == self.Role.MODERATOR or self.is_admin

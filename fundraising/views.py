@@ -5,6 +5,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import DonationCampaign, MockDonation
 from .serializers import DonationCampaignSerializer, MockDonationSerializer
+from rest_framework.decorators import action
+from rest_framework.views import APIView  # Add this import at the top
 
 class CreateDonationCampaignView(generics.CreateAPIView):
     """Створення збору з підтримкою завантаження зображень."""
@@ -101,3 +103,23 @@ class CampaignDonationsListView(generics.ListAPIView):
     def get_queryset(self):
         campaign_id = self.kwargs['campaign_id']
         return MockDonation.objects.filter(campaign_id=campaign_id).order_by('-created_at')
+    
+class ModerationCampaignsListView(generics.ListAPIView):
+    """Returns all fundraisers that need moderation."""
+    queryset = DonationCampaign.objects.filter(needs_moderation=True)
+    serializer_class = DonationCampaignSerializer
+    permission_classes = [permissions.IsAuthenticated]  # or IsAdminUser, or custom permission for moderator
+    
+    @action(detail=False, methods=['get'])
+    def count(self, request):
+        """Return count of campaigns needing moderation"""
+        count = self.get_queryset().count()
+        return Response({'count': count})
+    
+class ModerationCampaignsCountView(APIView):
+    """
+    Returns the count of campaigns needing moderation
+    """
+    def get(self, request):
+        count = DonationCampaign.objects.filter(needs_moderation=True).count()
+        return Response({"count": count})

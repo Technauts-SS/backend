@@ -18,11 +18,11 @@ class DonationCampaign(models.Model):
     ]
     
     STATUS_CHOICES = [
-        ("draft", "Чернетка"),
-        ("active", "Активна"),
-        ("paused", "Призупинена"),
-        ("completed", "Завершена"),
-        ("cancelled", "Скасована"),
+        ("draft", "Чернетка"),       # Тільки для автора
+        ("active", "Активний"),      # Збір триває
+        ("paused", "Призупинений"),  # Тимчасово не активний
+        ("completed", "Завершений"), # Успішно завершений
+        ("cancelled", "Скасований")  # Скасований адміном/автором
     ]
     
     # Основна інформація
@@ -65,7 +65,8 @@ class DonationCampaign(models.Model):
     created_at = models.DateTimeField(default=timezone.now, verbose_name="Дата створення")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата оновлення")
     ends_at = models.DateTimeField(blank=True, null=True, verbose_name="Дата завершення")
-    
+    needs_moderation = models.BooleanField(default=False, verbose_name="Потребує модерації")
+
     class Meta:
         verbose_name = "Кампанія збору коштів"
         verbose_name_plural = "Кампанії збору коштів"
@@ -99,6 +100,27 @@ class DonationCampaign(models.Model):
             return 0
         return int((self.current_amount / self.goal_amount) * 100)
     
+    def save(self, *args, **kwargs):
+        self.needs_moderation = (
+            self.goal_amount > 10000 or
+            (self.creator and not self.creator.is_verified) or
+            self.reports.filter(status='approved').exists()
+        )
+        
+        # або додатково: якщо це перша кампанія
+        if self.creator:
+            is_first = DonationCampaign.objects.filter(creator=self.creator).count() == 0
+            self.needs_moderation = self.needs_moderation or is_first
+
+        # логіка статусу
+        if self.is_completed() or self.is_ended():
+            self.status = 'completed'
+        elif self.status not in ['paused', 'cancelled']:
+            self.status = 'active'
+
+        super().save(*args, **kwargs)
+
+        
     def is_completed(self):
         return self.current_amount >= self.goal_amount
     
@@ -109,12 +131,10 @@ class DonationCampaign(models.Model):
         return False
 
     def update_status(self):
-        """Оновлення статусу кампанії на основі її цілей та дати завершення."""
-        if self.is_completed():
+        """Метод для примусового оновлення статусу"""
+        if self.is_completed() or self.is_ended():
             self.status = 'completed'
-        elif self.is_ended():
-            self.status = 'completed'
-        elif self.status != 'paused':
+        elif self.status not in ['paused', 'cancelled']:
             self.status = 'active'
         self.save()
     
