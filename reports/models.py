@@ -14,8 +14,10 @@ class Report(models.Model):
         DonationCampaign,
         on_delete=models.SET_NULL,
         null=True,
-        blank=True
+        blank=True,
+        related_name='reports'
     )
+
     user = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,

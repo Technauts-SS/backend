@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import DonationCampaign, MockDonation
+from .models import DonationCampaign, Donation
 
 @admin.register(DonationCampaign)
 class DonationCampaignAdmin(admin.ModelAdmin):
@@ -10,7 +10,7 @@ class DonationCampaignAdmin(admin.ModelAdmin):
 
     def goal_amount(self, obj):
         return f"${obj.goal_amount:,.2f}"  # Formats the goal amount as currency
-    goal_amount.short_description = "Goal Amount"  # Set a more readable column name
+    goal_amount.short_description = "Goal Amount"  #  a more readable column name
     def get_actions(self, request):
         actions = super().get_actions(request)
         if 'delete_selected' in actions:
@@ -33,7 +33,7 @@ class DonationCampaignAdmin(admin.ModelAdmin):
         except Exception as e:
             self.message_user(request, f"Помилка: {str(e)}", level='ERROR')
             
-@admin.register(MockDonation)
+@admin.register(Donation)
 class MockDonationAdmin(admin.ModelAdmin):
     list_display = ('id', 'campaign', 'user', 'amount', 'status')
     list_filter = ('status', 'campaign')
