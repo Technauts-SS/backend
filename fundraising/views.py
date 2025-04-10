@@ -1,3 +1,4 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, filters, permissions
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.renderers import JSONRenderer
@@ -7,6 +8,9 @@ from .models import DonationCampaign, MockDonation
 from .serializers import DonationCampaignSerializer, MockDonationSerializer
 from rest_framework.decorators import action
 from rest_framework.views import APIView  # Add this import at the top
+from users.permissions import IsModeratorOrAdmin
+from django.db.models import Q
+from django.db import transaction
 
 class CreateDonationCampaignView(generics.CreateAPIView):
     """Створення збору з підтримкою завантаження зображень."""
@@ -74,15 +78,26 @@ class DeleteFundraisingView(generics.DestroyAPIView):
     """Видалення збору."""
     serializer_class = DonationCampaignSerializer
     lookup_field = "id"
-    permission_classes = [permissions.IsAuthenticated]  # Тільки для авторизованих користувачів
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return DonationCampaign.objects.filter(creator=self.request.user)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        
+        # First delete all related donations
+        MockDonation.objects.filter(campaign=instance).delete()
+        
+        # Then delete the campaign
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
+    def destroy(self, request, *args, **kwargs):
+        with transaction.atomic():
+            instance = self.get_object()
+            MockDonation.objects.filter(campaign=instance).delete()
+            self.perform_destroy(instance)
+            return Response(status=status.HTTP_204_NO_CONTENT)
     
 class CreateDonationView(generics.CreateAPIView):
     """Створення донату. Доступно для всіх."""
@@ -103,12 +118,58 @@ class CampaignDonationsListView(generics.ListAPIView):
     def get_queryset(self):
         campaign_id = self.kwargs['campaign_id']
         return MockDonation.objects.filter(campaign_id=campaign_id).order_by('-created_at')
-    
+class ModerationCampaignView(APIView):
+    permission_classes = [IsModeratorOrAdmin]
+
+    def patch(self, request, pk):
+        campaign = get_object_or_404(DonationCampaign, pk=pk)
+        action = request.data.get('action')
+        resolution_note = request.data.get('resolution_note', '')
+
+        if action == 'approve':
+            if campaign.status in ['pending', 'paused']:
+                campaign.status = 'active'
+                campaign.needs_moderation = False
+                campaign.save()
+                return Response({'status': 'approved' if campaign.status == 'pending' else 're-activated'})
+
+        elif action == 'reject':
+            if campaign.status in ['pending', 'paused']:
+                campaign.status = 'cancelled'
+                campaign.needs_moderation = False
+                campaign.save()
+                return Response({'status': 'rejected' if campaign.status == 'pending' else 'cancelled'})
+
+        elif action == 'pause':
+            if campaign.status == 'active':
+                campaign.status = 'paused'
+                campaign.save()
+                return Response({'status': 'paused'})
+
+        elif action == 'warn':
+            campaign.warnings_count += 1
+            campaign.needs_moderation = True
+            if campaign.warnings_count >= 3:
+                campaign.status = 'paused'
+            campaign.save()
+            return Response({
+                'status': 'warning issued',
+                'warnings_count': campaign.warnings_count,
+                'campaign_status': campaign.status
+            })
+
+        return Response(
+            {'error': 'Invalid action for current status'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
 class ModerationCampaignsListView(generics.ListAPIView):
     """Returns all fundraisers that need moderation."""
-    queryset = DonationCampaign.objects.filter(needs_moderation=True)
+    queryset = DonationCampaign.objects.filter(
+        Q(status='pending') | Q(needs_moderation=True)
+    )  # Закрито дужки
     serializer_class = DonationCampaignSerializer
-    permission_classes = [permissions.IsAuthenticated]  # or IsAdminUser, or custom permission for moderator
+    permission_classes = [permissions.IsAuthenticated, IsModeratorOrAdmin]  # Додано закриваючу дужку
     
     @action(detail=False, methods=['get'])
     def count(self, request):
@@ -123,3 +184,14 @@ class ModerationCampaignsCountView(APIView):
     def get(self, request):
         count = DonationCampaign.objects.filter(needs_moderation=True).count()
         return Response({"count": count})
+
+class RetrieveFundraisingView(generics.RetrieveAPIView):
+    queryset = DonationCampaign.objects.all()
+    serializer_class = DonationCampaignSerializer
+    lookup_field = "id"
+    permission_classes = [permissions.AllowAny]
+
+    def get_object(self):
+        instance = super().get_object()
+        instance.handle_reports()  # Перевіряємо скарги при кожному запиті
+        return instance
