@@ -104,11 +104,29 @@ class DeleteFundraisingView(generics.DestroyAPIView):
         return DonationCampaign.objects.filter(creator=self.request.user)
 
     def destroy(self, request, *args, **kwargs):
-        with transaction.atomic():
-            instance = self.get_object()
-            Donation.objects.filter(campaign=instance).delete()
-            self.perform_destroy(instance)
+        try:
+            with transaction.atomic():
+                instance = self.get_object()
+
+                # Логування перед видаленням
+                logger.info(f"Deleting campaign {instance.id} by user {request.user}")
+
+                # Видаляємо всі донати, пов’язані з кампанією
+                Donation.objects.filter(campaign=instance).delete()
+
+                # Видаляємо саму кампанію (разом із файлами)
+                self.perform_destroy(instance)
+
             return Response(status=status.HTTP_204_NO_CONTENT)
+
+        except DonationCampaign.DoesNotExist:
+            logger.warning(f"Attempt to delete non-existing campaign by user {request.user}")
+            return Response({"detail": "Кампанія не знайдена."}, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            logger.error(f"Unexpected error while deleting campaign: {str(e)}")
+            return Response({"detail": "Сталася помилка при видаленні кампанії."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class CreateDonationView(generics.CreateAPIView):
     queryset = Donation.objects.all()
