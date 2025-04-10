@@ -7,11 +7,11 @@ from .serializers import ReportSerializer
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework.decorators import action
-from django.db.models import Count
+from django.db.models import Count, Q
 from users.permissions import IsModeratorOrAdmin
-from django.db.models import Q
 import logging
-logger = logging.getLogger(__name__) 
+
+logger = logging.getLogger(__name__)
 
 class ReportViewSet(viewsets.ModelViewSet):
     queryset = Report.objects.all().select_related('fundraiser', 'user')
@@ -20,18 +20,16 @@ class ReportViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         queryset = super().get_queryset()
-        # Якщо користувач є модератором або адміністратором – не фільтруємо по user
         if not (self.request.user.is_staff or self.request.user.role in ['moderator', 'admin']):
             queryset = queryset.filter(user=self.request.user)
         return queryset
-
     
     def create(self, request, *args, **kwargs):
         logger.info(f"Incoming report data: {request.data}")
         logger.info(f"From user: {request.user.id}")
 
         try:
-            # Перевірка обов'язкових полів
+            # Валідація вхідних даних
             if 'fundraiser' not in request.data:
                 return Response(
                     {"fundraiser": ["Це поле обов'язкове"]},
@@ -44,7 +42,6 @@ class ReportViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Перевірка типу fundraiser
             try:
                 fundraiser_id = int(request.data['fundraiser'])
             except (ValueError, TypeError):
@@ -53,14 +50,13 @@ class ReportViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Перевірка існування кампанії
             if not DonationCampaign.objects.filter(id=fundraiser_id).exists():
                 return Response(
                     {"fundraiser": [f"Кампанія з ID {fundraiser_id} не існує"]},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Перевірка на дублікати
+            # Перевірка на дублікати за останні 24 години
             last_24h = timezone.now() - timedelta(hours=24)
             existing_report = Report.objects.filter(
                 fundraiser_id=fundraiser_id,
@@ -80,10 +76,13 @@ class ReportViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Створення звіту
+            # Створення скарги
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            self.perform_create(serializer)
+            report = serializer.save(user=request.user)
+            
+            # Обробка скарги після створення
+            self.process_new_report(report)
             
             logger.info(f"Report created: {serializer.data}")
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -94,7 +93,31 @@ class ReportViewSet(viewsets.ModelViewSet):
                 {"detail": "Внутрішня помилка сервера при створенні звіту"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-              
+    
+    def process_new_report(self, report):
+        """Обробляє нову скаргу та виконує необхідні дії"""
+        # Отримуємо кількість схвалених скарг на цей збір
+        approved_reports_count = Report.objects.filter(
+            fundraiser=report.fundraiser,
+            status='approved'
+        ).count()
+        
+        # Якщо скарг 3 або більше - призупиняємо збір
+        if approved_reports_count >= 3:
+            report.fundraiser.status = 'paused'
+            report.fundraiser.save()
+            logger.info(f"Campaign {report.fundraiser.id} paused due to 3+ approved reports")
+        else:
+            # Якщо скарг менше 3 - лише повідомляємо модератора
+            self.notify_moderators(report)
+    
+    def notify_moderators(self, report):
+        """Надсилає сповіщення модераторам про нову скаргу"""
+        # Тут можна реалізувати відправку email, повідомлення в чат тощо
+        logger.info(f"New report #{report.id} for campaign {report.fundraiser.id}. Notifying moderators")
+        # Приклад відправки email:
+        # send_mail_to_moderators(report)
+    
     @action(detail=False, methods=['get'])
     def stats(self, request):
         stats = Report.objects.values('status').annotate(count=Count('status'))
@@ -107,49 +130,47 @@ class ReportViewSet(viewsets.ModelViewSet):
     def update_status(self, request, pk=None):
         report = self.get_object()
         new_status = request.data.get('status')
-        resolution_note = request.data.get('resolution_note', '')
         
-        if new_status not in ['approved', 'rejected']:
-            return Response(
-                {"detail": "Невірний статус. Допустимі значення: 'approved' або 'rejected'"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if new_status in ['approved', 'rejected']:
+            report.status = new_status
+            report.save()
+            
+            # Перевіряємо чи потрібно призупинити збір
+            if new_status == 'approved':
+                report.fundraiser.handle_reports()
+            
+            return Response({'status': 'success'})
         
-        report.status = new_status
-        report.resolution_note = resolution_note
-        report.processed_at = timezone.now()
-        report.save()
+        return Response({'error': 'Invalid status'}, status=400)
+    
+    def check_campaign_status(self, campaign):
+        """Перевіряє кількість скарг та призупиняє збір при необхідності"""
+        approved_reports_count = Report.objects.filter(
+            fundraiser=campaign,
+            status='approved'
+        ).count()
         
-        if new_status == 'approved':
-            Report.check_campaign_reports(report.fundraiser.id)
-        
-        return Response(self.get_serializer(report).data)
+        if approved_reports_count >= 3 and campaign.status == 'active':
+            campaign.status = 'paused'
+            campaign.save()
+            logger.info(f"Campaign {campaign.id} paused due to 3+ approved reports")
     
     @action(detail=False, methods=['get'], permission_classes=[IsModeratorOrAdmin])
     def for_moderation(self, request):
         try:
-            # Get all reports for moderation
             queryset = Report.objects.all().select_related('fundraiser', 'user')
             
-            # Get pending reports
             pending_reports = queryset.filter(status='pending').order_by('-created_at')
-            
-            # Base queryset for processed reports (before slicing)
-            processed_base = queryset.filter(
+            processed_reports = queryset.filter(
                 Q(status='approved') | Q(status='rejected')
-            ).order_by('-processed_at')
+            ).order_by('-processed_at')[:10]
             
-            # Calculate stats using the unsliced queryset
             stats = {
                 'pending': pending_reports.count(),
                 'approved': queryset.filter(status='approved').count(),
                 'rejected': queryset.filter(status='rejected').count()
             }
             
-            # Only slice the queryset for the response data
-            processed_reports = processed_base[:10]
-            
-            # Serialize the data
             serializer = self.get_serializer(pending_reports, many=True)
             processed_serializer = self.get_serializer(processed_reports, many=True)
             
@@ -164,10 +185,12 @@ class ReportViewSet(viewsets.ModelViewSet):
                 {"detail": "Internal server error", "error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
     def get_permissions(self):
-        if self.action in ['for_moderation', 'update_status']:
+        if self.action in ['for_moderation', 'update_status', 'update_campaign_status']:
             return [IsModeratorOrAdmin()]
         return super().get_permissions()
+    
     @action(detail=False, methods=['get'])
     def check(self, request):
         fundraiser_id = request.query_params.get('fundraiser')
@@ -192,32 +215,54 @@ class ReportViewSet(viewsets.ModelViewSet):
             })
         
         return Response({"exists": False})
-    # Add this to your ReportViewSet to handle campaign moderation
+    
     @action(detail=True, methods=['patch'], permission_classes=[IsModeratorOrAdmin])
     def update_campaign_status(self, request, pk=None):
-        campaign = DonationCampaign.objects.get(id=pk)
-        action = request.data.get('action')  # 'approve' or 'reject'
-        resolution_note = request.data.get('resolution_note', '')
-        
-        if action == 'approve':
-            campaign.needs_moderation = False
-            campaign.is_active = True
-            campaign.moderation_status = 'approved'
-        elif action == 'reject':
-            campaign.needs_moderation = False
-            campaign.is_active = False
-            campaign.moderation_status = 'rejected'
-        else:
+        try:
+            campaign = DonationCampaign.objects.get(id=pk)
+            action = request.data.get('action')  # 'approve' or 'reject'
+            resolution_note = request.data.get('resolution_note', '')
+            
+            if action == 'approve':
+                campaign.needs_moderation = False
+                campaign.status = 'active'
+            elif action == 'reject':
+                campaign.needs_moderation = False
+                campaign.status = 'cancelled'
+            else:
+                return Response(
+                    {"detail": "Invalid action. Use 'approve' or 'reject'"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            campaign.save()
+            
+            return Response({
+                "id": campaign.id,
+                "status": "success",
+                "campaign_status": campaign.status
+            })
+        except DonationCampaign.DoesNotExist:
             return Response(
-                {"detail": "Invalid action. Use 'approve' or 'reject'"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": "Campaign not found"},
+                status=status.HTTP_404_NOT_FOUND
             )
-        
-        campaign.moderation_notes = resolution_note
-        campaign.save()
-        
-        return Response({
-            "id": campaign.id,
-            "status": "success",
-            "moderation_status": campaign.moderation_status
-        })
+        except Exception as e:
+            logger.error(f"Error updating campaign status: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )                               
+    
+    @action(detail=False, methods=['get'], url_path='count')
+    def count_reports(self, request):
+        fundraiser_id = request.query_params.get('fundraiser')
+        if not fundraiser_id:
+            return Response({"detail": "Fundraiser ID is required"}, status=400)
+
+        count = Report.objects.filter(fundraiser_id=fundraiser_id).count()
+        return Response({"count": count})
+    
+    def perform_create(self, serializer):
+        report = serializer.save(user=self.request.user)
+        report.fundraiser.handle_reports()
