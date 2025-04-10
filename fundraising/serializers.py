@@ -9,6 +9,7 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
     days_left = serializers.SerializerMethodField()
     creator_name = serializers.CharField(source='creator.full_name', read_only=True)
     creator_email = serializers.EmailField(source='creator.email', read_only=True)
+    approved_reports_count = serializers.SerializerMethodField()
     
     class Meta:
         model = DonationCampaign
@@ -30,18 +31,19 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
             return None
         delta = obj.ends_at - timezone.now()
         return max(0, delta.days)
+    
+    def get_approved_reports_count(self, obj):
+        # Використовуємо related_name 'reports' з моделі Report
+        return obj.reports.filter(status='approved').count()
 
     def validate(self, data):
         """Додаткові валідації для всього об'єкта."""
-        # Перевіряємо, що хоча б одне поле з доказами заповнене
         if not any(data.get(field) for field in ['evidence', 'evidence_file', 'evidence_link']):
             raise serializers.ValidationError("Необхідно надати хоча б один доказ: текст, файл або посилання.")
         
-        # Перевіряємо, що дата завершення в майбутньому
         if data.get('ends_at') and data['ends_at'] < timezone.now():
             raise serializers.ValidationError("Дата завершення кампанії повинна бути в майбутньому.")
         
-        # Перевіряємо узгодженість типу допомоги і цільової суми
         if data.get('help_type') == "volunteer" and data.get('goal_amount', 0) > 0:
             raise serializers.ValidationError("Для волонтерської допомоги не потрібно вказувати цільову суму.")
             
@@ -66,11 +68,12 @@ class MockDonationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Номер картки повинен містити 16 цифр")
         return value
     
-    def create(self, validated_data):
-        donation = MockDonation.objects.create(**validated_data)
-        donation.process_payment()
-        return donation
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Сума донату повинна бути більше 0")
         return value
+    
+    def create(self, validated_data):
+        donation = MockDonation.objects.create(**validated_data)
+        donation.process_payment()
+        return donation

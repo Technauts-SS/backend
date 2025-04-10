@@ -20,7 +20,7 @@ urlpatterns = [
     path('fundraisers/<int:id>/update/', UpdateFundraisingView.as_view(), name='fundraiser-update'),
     path('fundraisers/<int:id>/delete/', DeleteFundraisingView.as_view(), name='fundraiser-delete'),
     path('fundraisers/<int:campaign_id>/donations/', CampaignDonationsListView.as_view(), name='campaign-donations'),  # Новий маршрут
-    path('donate/', CreateDonationView.as_view(), name='create-donation'),
+    path('donations/', CreateDonationView.as_view(), name='create-donation'),
     path("fundraisers/moderation/campaigns/", ModerationCampaignsListView.as_view(), name="moderation-campaigns"),
     path("fundraisers/moderation/campaigns/count/", ModerationCampaignsCountView.as_view(), name="moderation-campaigns-count")   
 ]
