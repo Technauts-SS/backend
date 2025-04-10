@@ -18,13 +18,14 @@ class DonationCampaign(models.Model):
     ]
     
     STATUS_CHOICES = [
-        ("draft", "Чернетка"),       # Тільки для автора
-        ("active", "Активний"),      # Збір триває
-        ("paused", "Призупинений"),  # Тимчасово не активний
-        ("completed", "Завершений"), # Успішно завершений
-        ("cancelled", "Скасований")  # Скасований адміном/автором
+        ("draft", "Чернетка"),       # Only visible to creator
+        ("pending", "На розгляді"),  # Waiting for moderator approval
+        ("active", "Активний"),      # Campaign is running
+        ("paused", "Призупинений"),  # Temporarily inactive (due to reports)
+        ("completed", "Завершений"), # Successfully completed
+        ("cancelled", "Скасований")  # Cancelled by admin/moderator
     ]
-    
+        
     # Основна інформація
     title = models.CharField(max_length=200, verbose_name="Назва кампанії")
     description = models.TextField(verbose_name="Опис")
@@ -101,24 +102,57 @@ class DonationCampaign(models.Model):
         return int((self.current_amount / self.goal_amount) * 100)
     
     def save(self, *args, **kwargs):
-        self.needs_moderation = (
-            self.goal_amount > 10000 or
-            (self.creator and not self.creator.is_verified) or
-            self.reports.filter(status='approved').exists()
-        )
+        # For new campaigns
+        if self._state.adding:
+            if self.goal_amount < 10000:
+                self.status = 'active'
+                self.needs_moderation = False
+            else:
+                self.status = 'pending'
+                self.needs_moderation = True
         
-        # або додатково: якщо це перша кампанія
-        if self.creator:
-            is_first = DonationCampaign.objects.filter(creator=self.creator).count() == 0
-            self.needs_moderation = self.needs_moderation or is_first
-
-        # логіка статусу
+        # For existing campaigns
+        else:
+            original = DonationCampaign.objects.get(pk=self.pk)
+            
+            # If status changed from pending to active (moderator approved)
+            if self.status == 'active' and original.status == 'pending':
+                self.needs_moderation = False
+                
+        # Always check if campaign should be completed
         if self.is_completed() or self.is_ended():
             self.status = 'completed'
-        elif self.status not in ['paused', 'cancelled']:
-            self.status = 'active'
-
+        
         super().save(*args, **kwargs)
+        
+    def handle_report(self):
+        """Handle a new report and check if campaign should be paused"""
+        approved_reports = self.reports.filter(status='approved').count()
+        
+        if approved_reports >= 3 and self.status == 'active':
+            self.status = 'paused'
+            self.save()
+            return True
+        return False
+
+    def review_reports(self, moderator_decision):
+        """
+        Handle moderator decision after campaign was paused due to reports
+        moderator_decision: 'approve' or 'reject'
+        """
+        if self.status != 'paused':
+            return False
+            
+        if moderator_decision == 'approve':
+            self.status = 'active'
+            self.save()
+            return True
+        elif moderator_decision == 'reject':
+            self.status = 'cancelled'
+            self.save()
+            return True
+            
+        return False
 
         
     def is_completed(self):
@@ -132,6 +166,9 @@ class DonationCampaign(models.Model):
 
     def update_status(self):
         """Метод для примусового оновлення статусу"""
+        if self.status in ['completed', 'cancelled']:
+            return  # Не змінюємо статус, якщо вже завершений або скасований
+            
         if self.is_completed() or self.is_ended():
             self.status = 'completed'
         elif self.status not in ['paused', 'cancelled']:
@@ -145,6 +182,24 @@ class DonationCampaign(models.Model):
         self.current_amount = total
         self.save()
         self.update_status()  # Оновити статус кампанії
+    def get_active_reports_count(self):
+        """Повертає кількість активних (схвалених) скарг на цей збір"""
+        return self.report_set.filter(status='approved').count()
+    
+    def check_reports_and_pause(self):
+        """
+        Перевіряє кількість скарг і призупиняє збір, якщо потрібно.
+        Повертає True, якщо статус був змінений.
+        """
+        from django.conf import settings
+        reports_limit = getattr(settings, 'AUTO_PAUSE_REPORTS_LIMIT', 3)
+        
+        if self.get_active_reports_count() >= reports_limit and self.status == 'active':
+            self.status = 'paused'
+            self.save(update_fields=['status'])
+            return True
+        return False
+    
     
 class MockDonation(models.Model):
     STATUS_CHOICES = [
@@ -167,6 +222,7 @@ class MockDonation(models.Model):
             self.status = 'success'
             self.campaign.current_amount += self.amount
             self.campaign.save()
+            self.campaign.update_status()  # Оновити статус після успішного платежу
         else:
             self.status = 'failed'
         self.save()

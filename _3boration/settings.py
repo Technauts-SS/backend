@@ -133,8 +133,7 @@ REST_FRAMEWORK = {
         'user': '1000/day'
     }
 }
-# Автоматичне призупинення збору при цій кількості підтверджених скарг
-AUTO_PAUSE_REPORTS_LIMIT = 5  
+AUTO_PAUSE_REPORTS_LIMIT = 3 
 
 # Автоматичне завершення збору при досягненні цільової суми
 AUTO_COMPLETE_ON_GOAL_REACHED = True
