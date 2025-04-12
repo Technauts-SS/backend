@@ -148,12 +148,15 @@ class CreateDonationView(generics.CreateAPIView):
 class CampaignDonationsListView(generics.ListAPIView):
     serializer_class = DonationSerializer
     permission_classes = [permissions.AllowAny]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['amount', 'created_at']  # або інші поля, які є у Donation
+    ordering = ['-created_at']
 
     def get_queryset(self):
         campaign = get_object_or_404(DonationCampaign, pk=self.kwargs['campaign_id'])
         if campaign.status in ['paused', 'cancelled']:
             return Donation.objects.none()
-        return super().get_queryset()
+        return Donation.objects.filter(campaign=campaign).order_by('-created_at')
 
 class ModerationCampaignsListView(generics.ListAPIView):
     queryset = DonationCampaign.objects.filter(
