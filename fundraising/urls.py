@@ -5,6 +5,7 @@ from .views import (
     ListFundraisingsView,
     ModerationCampaignsCountView,
     ModerationCampaignsListView,
+    UpdateCampaignStatusView,
     UserFundraisingsView,
     RetrieveFundraisingView,
     UpdateFundraisingView,
@@ -22,5 +23,6 @@ urlpatterns = [
     path('fundraisers/<int:campaign_id>/donations/', CampaignDonationsListView.as_view(), name='campaign-donations'),  # Новий маршрут
     path('donations/', CreateDonationView.as_view(), name='create-donation'),
     path("fundraisers/moderation/campaigns/", ModerationCampaignsListView.as_view(), name="moderation-campaigns"),
-    path("fundraisers/moderation/campaigns/count/", ModerationCampaignsCountView.as_view(), name="moderation-campaigns-count")   
+    path("fundraisers/moderation/campaigns/count/", ModerationCampaignsCountView.as_view(), name="moderation-campaigns-count"),
+    path('fundraisers/<int:pk>/update_status/', UpdateCampaignStatusView.as_view(), name='update-campaign-status')
 ]

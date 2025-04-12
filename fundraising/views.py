@@ -150,9 +150,10 @@ class CampaignDonationsListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return Donation.objects.filter(
-            campaign_id=self.kwargs['campaign_id']
-        ).order_by('-created_at')
+        campaign = get_object_or_404(DonationCampaign, pk=self.kwargs['campaign_id'])
+        if campaign.status in ['paused', 'cancelled']:
+            return Donation.objects.none()
+        return super().get_queryset()
 
 class ModerationCampaignsListView(generics.ListAPIView):
     queryset = DonationCampaign.objects.filter(
@@ -171,3 +172,29 @@ class ModerationCampaignsCountView(APIView):
     def get(self, request):
         count = DonationCampaign.objects.filter(needs_moderation=True).count()
         return Response({"count": count})
+
+class UpdateCampaignStatusView(generics.UpdateAPIView):
+    queryset = DonationCampaign.objects.all()
+    serializer_class = DonationCampaignSerializer
+    permission_classes = [IsModeratorOrAdmin]
+
+    def patch(self, request, *args, **kwargs):
+        instance = self.get_object()
+        new_status = request.data.get('status')
+        
+        if new_status not in ['active', 'paused', 'cancelled']:
+            return Response(
+                {"error": "Invalid status"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        instance.status = new_status
+        instance.save()
+        
+        # Якщо статус змінює модератор, позначаємо що модерація пройдена
+        if new_status in ['active', 'cancelled']:
+            instance.needs_moderation = False
+            instance.save()
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)

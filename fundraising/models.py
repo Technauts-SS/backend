@@ -121,7 +121,6 @@ class DonationCampaign(models.Model):
             self.status = 'paused'
             self.save()
             return True
-    
         return False
 
     def is_completed(self):
