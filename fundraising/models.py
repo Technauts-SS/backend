@@ -63,7 +63,12 @@ class DonationCampaign(models.Model):
     ends_at = models.DateTimeField(blank=True, null=True)
     needs_moderation = models.BooleanField(default=False)
     warnings_count = models.IntegerField(default=0)
-
+    previous_status = models.CharField(
+        max_length=20, 
+        blank=True, 
+        null=True,
+        help_text="Попередній статус перед зміною"
+    )
     class Meta:
         ordering = ['-created_at']
 
@@ -94,8 +99,6 @@ class DonationCampaign(models.Model):
         if is_new and self.goal_amount < 10000:
             self.status = 'active'
         
-        super().save(*args, **kwargs)
-        
         # Оригінальна логіка для оновлення суми
         if is_new and self.status == 'success':
             self.campaign.current_amount = Donation.objects.filter(
@@ -103,18 +106,23 @@ class DonationCampaign(models.Model):
                 status='success'
             ).aggregate(Sum('amount'))['amount__sum'] or 0
             self.campaign.save()
+        
+        elif self.pk:  # Якщо це оновлення існуючого запису
+            old = DonationCampaign.objects.get(pk=self.pk)
+            if old.status != self.status:
+                self.previous_status = old.status
+        super().save(*args, **kwargs)
             
     def handle_reports(self):
-        try:
-            reports_count = self.reports.filter(status='approved').count()
-            if reports_count >= 3 and self.status == 'active':
-                self.status = 'paused'
-                self.save()
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Error handling reports: {str(e)}")
-            return False
+        """Handle automatic status changes when reports are approved"""
+        approved_count = self.reports.filter(status='approved').count()
+        
+        if approved_count >= 3 and self.status == 'active':
+            self.status = 'paused'
+            self.save()
+            return True
+    
+        return False
 
     def is_completed(self):
         return self.current_amount >= self.goal_amount

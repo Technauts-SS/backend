@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from django.db.models import Count, Q
 from users.permissions import IsModeratorOrAdmin
 import logging
+from django.db import transaction 
 
 logger = logging.getLogger(__name__)
 
@@ -126,23 +127,43 @@ class ReportViewSet(viewsets.ModelViewSet):
             result[item['status']] = item['count']
         return Response(result)
     
-    @action(detail=True, methods=['patch'])
+    @action(detail=True, methods=['patch'], permission_classes=[IsModeratorOrAdmin])
     def update_status(self, request, pk=None):
         report = self.get_object()
         new_status = request.data.get('status')
+        resolution_note = request.data.get('resolution_note', '')
         
-        if new_status in ['approved', 'rejected']:
-            report.status = new_status
-            report.save()
-            
-            # Перевіряємо чи потрібно призупинити збір
-            if new_status == 'approved':
-                report.fundraiser.handle_reports()
-            
-            return Response({'status': 'success'})
+        if new_status not in ['approved', 'rejected']:
+            return Response(
+                {"detail": "Invalid status. Use 'approved' or 'rejected'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        return Response({'error': 'Invalid status'}, status=400)
-    
+        try:
+            with transaction.atomic():
+                # Update report status
+                report.status = new_status
+                report.resolution_note = resolution_note
+                report.processed_at = timezone.now()
+                report.save()
+                
+                # If approved, check campaign status
+                if new_status == 'approved':
+                    report.update_campaign_status()
+                
+                return Response({
+                    "status": "success",
+                    "report_status": report.status,
+                    "campaign_status": report.fundraiser.status
+                })
+                
+        except Exception as e:
+            logger.error(f"Error updating report status: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
     def check_campaign_status(self, campaign):
         """Перевіряє кількість скарг та призупиняє збір при необхідності"""
         approved_reports_count = Report.objects.filter(

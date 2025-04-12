@@ -12,9 +12,7 @@ class Report(models.Model):
 
     fundraiser = models.ForeignKey(
         DonationCampaign,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,  # Changed from SET_NULL to CASCADE
         related_name='reports'
     )
 
@@ -41,7 +39,35 @@ class Report(models.Model):
 
     def __str__(self):
         return f"Звіт #{self.id} ({self.status})"
+    def save(self, *args, **kwargs):
+        # Update processed_at when status changes from pending
+        if self.pk and self.status != 'pending':
+            original = Report.objects.get(pk=self.pk)
+            if original.status == 'pending':
+                self.processed_at = timezone.now()
+        
+        super().save(*args, **kwargs)
+        
+        # Update campaign status if report is approved
+        if self.status == 'approved':
+            self.update_campaign_status()
 
+    def update_campaign_status(self):
+        """Update campaign status based on approved reports"""
+        # Get fresh count of approved reports
+        approved_count = Report.objects.filter(
+            fundraiser=self.fundraiser,
+            status='approved'
+        ).count()
+        
+        # Check if we need to pause the campaign
+        if approved_count >= 3:
+            campaign = DonationCampaign.objects.get(id=self.fundraiser.id)
+            if campaign.status == 'active':
+                campaign.status = 'paused'
+                campaign.save()
+                return True
+        return False
     @classmethod
     def check_campaign_reports(cls, campaign_id):
         from django.conf import settings

@@ -27,3 +27,10 @@ def handle_campaign_status_change(sender, instance, **kwargs):
         # Якщо статус змінився на 'active' з 'pending'
         if instance.status == 'active' and original.status == 'pending':
             instance.needs_moderation = False
+@receiver(post_save, sender=Report)
+def update_campaign_on_report_approval(sender, instance, created, **kwargs):
+    """
+    Automatically update campaign status when reports are approved
+    """
+    if instance.status == 'approved':
+        instance.update_campaign_status()
