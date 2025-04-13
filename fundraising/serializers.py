@@ -89,9 +89,17 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
 
 
 class DonationSerializer(serializers.ModelSerializer):
+    mock_card_number = serializers.CharField(write_only=True, required=False)
+    name = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
+    anonymous = serializers.BooleanField(required=False, default=True)
+    message = serializers.CharField(required=False, allow_blank=True)
+    
     class Meta:
         model = Donation
-        fields = ['id', 'campaign', 'amount', 'status', 'created_at']
+        fields = ['id', 'campaign', 'amount', 'status', 'created_at', 
+                 'mock_card_number', 'name', 'email', 'phone', 'anonymous', 'message']
         extra_kwargs = {
             'status': {'read_only': True},
         }
@@ -102,6 +110,20 @@ class DonationSerializer(serializers.ModelSerializer):
         return value
     
     def create(self, validated_data):
-        donation = Donation.objects.create(**validated_data)
-        donation.process_payment()
+        # Extract fields that aren't part of the Donation model
+        mock_card_number = validated_data.pop('mock_card_number', None)
+        
+        # Remove extra fields that aren't in the model
+        validated_data.pop('name', None)
+        validated_data.pop('email', None)
+        validated_data.pop('phone', None)
+        validated_data.pop('anonymous', None)
+        validated_data.pop('message', None)
+        
+        # Create the donation
+        donation = Donation.objects.create(
+            **validated_data,
+            transaction_id=mock_card_number
+        )
+        
         return donation

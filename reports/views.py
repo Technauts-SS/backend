@@ -11,6 +11,10 @@ from django.db.models import Count, Q
 from users.permissions import IsModeratorOrAdmin
 import logging
 from django.db import transaction 
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)
 
@@ -287,3 +291,17 @@ class ReportViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         report = serializer.save(user=self.request.user)
         report.fundraiser.handle_reports()
+
+class ReportPublicCountView(APIView):
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        fundraiser_id = request.query_params.get('fundraiser')
+        if not fundraiser_id:
+            return Response(
+                {"error": "Fundraiser ID is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        count = Report.get_public_count(fundraiser_id)
+        return Response({"count": count})

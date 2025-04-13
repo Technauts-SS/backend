@@ -137,13 +137,19 @@ class CreateDonationView(generics.CreateAPIView):
         with transaction.atomic():
             campaign = serializer.validated_data['campaign']
             user = self.request.user if self.request.user.is_authenticated else None
+            
+            # Вже не потрібно окремо обробляти mock_card_number, він буде записаний у transaction_id
             donation = serializer.save(user=user)
             
             # Process payment
-            donation.process_payment()
+            success = donation.process_payment()
             
             # Update campaign stats
             campaign.update_stats()
+            
+            # Логування для відстеження
+            logger.info(f"Donation processing result: {donation.status} " 
+                      f"(Card: {donation.transaction_id})")
 
 class CampaignDonationsListView(generics.ListAPIView):
     serializer_class = DonationSerializer

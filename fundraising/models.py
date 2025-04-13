@@ -165,7 +165,7 @@ class Donation(models.Model):
     transaction_id = models.CharField(max_length=100, blank=True, null=True)
 
     def process_payment(self):
-        """Обробка платежу з базовою валідацією"""
+        """Обробка платежу з перевіркою номера картки"""
         try:
             # Базова перевірка - сума має бути додатньою
             if self.amount <= 0:
@@ -173,20 +173,31 @@ class Donation(models.Model):
                 self.save()
                 return False
             
-            # Для тестування - приймаємо будь-який платіж
+            # Перевірка номера картки для симуляції різних сценаріїв оплати
+            card_number = self.transaction_id or ''
+            
+            # Логування для відстеження
+            logger.info(f"Processing payment with card: {card_number}")
+            
+            # Картка для симуляції відмови - перевіряємо точне значення
+            if card_number == '4000000000000002':
+                self.status = 'failed'
+                self.save()
+                logger.info(f"Payment failed (test decline card)")
+                return False
+            
+            # Для інших карток - приймаємо платіж
             self.status = 'success'
             self.save()
             
-            # Оновлюємо кампанію
-            self.campaign.current_amount = Donation.objects.filter(
-                campaign=self.campaign, 
-                status='success'
-            ).aggregate(total=Sum('amount'))['total'] or 0
-            self.campaign.save()
+            # Оновлюємо кампанію через метод update_stats
+            # Не робимо це вручну, щоб уникнути дублювання логіки
+            self.campaign.update_stats()
             
             return True
-            
+                
         except Exception as e:
+            logger.error(f"Payment processing error: {str(e)}")
             self.status = 'failed'
             self.save()
             return False

@@ -98,3 +98,7 @@ class Report(models.Model):
             )
             # Now proceed with the actual deletion
             super().delete(*args, **kwargs)
+    
+    @classmethod
+    def get_public_count(cls, fundraiser_id):
+        return cls.objects.filter(fundraiser_id=fundraiser_id, status='approved').count()
