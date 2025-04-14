@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, filters, permissions, status
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -7,10 +8,11 @@ from .serializers import DonationCampaignSerializer, DonationSerializer
 from rest_framework.decorators import action
 from rest_framework.views import APIView
 from users.permissions import IsModeratorOrAdmin
-from django.db.models import Q
+from django.db.models import Q, F
 from django.db import transaction
 import logging
 from django.http import Http404
+from rest_framework.permissions import AllowAny
 
 logger = logging.getLogger(__name__)
 
@@ -23,25 +25,48 @@ class CreateDonationCampaignView(generics.CreateAPIView):
     def perform_create(self, serializer):
         serializer.save(creator=self.request.user)
 
-# views.py
 class ListFundraisingsView(generics.ListAPIView):
     serializer_class = DonationCampaignSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description', 'category']
     ordering_fields = ['created_at', 'goal_amount', 'current_amount']
     ordering = ['-created_at']
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
-        queryset = DonationCampaign.objects.all() 
-        category = self.request.query_params.get('category')
-        status = self.request.query_params.get('status')
-        
-        if category:
-            queryset = queryset.filter(category=category)
-        if status:
-            queryset = queryset.filter(status=status)
-            
+        queryset = DonationCampaign.objects.all()
+        params = {
+            'category': self.request.query_params.get('category'),
+            'city': self.request.query_params.get('city'),
+            'status': self.request.query_params.get('status'),
+            'urgency': self.request.query_params.get('urgency')
+        }
+
+        logger.info(f"Filter params: {params}")
+
+        # Apply category filter
+        if params['category']:
+            queryset = queryset.filter(category=params['category'])
+
+        # Apply city filter
+        if params['city']:
+            queryset = queryset.filter(city=params['city'])
+
+        # Apply status filter
+        if params['status']:
+            if params['status'] == 'completed':
+                queryset = queryset.filter(
+                    Q(status='completed') | 
+                    Q(current_amount__gte=F('goal_amount')) |
+                    Q(ends_at__lte=timezone.now())
+                )
+            else:
+                queryset = queryset.filter(status=params['status'])
+
+        # Apply urgency filter
+        if params['urgency']:
+            queryset = queryset.filter(urgency=params['urgency'])
+
         return queryset
 
 class UserFundraisingsView(generics.ListAPIView):
@@ -111,7 +136,7 @@ class DeleteFundraisingView(generics.DestroyAPIView):
                 # Логування перед видаленням
                 logger.info(f"Deleting campaign {instance.id} by user {request.user}")
 
-                # Видаляємо всі донати, пов’язані з кампанією
+                # Видаляємо всі донати, пов'язані з кампанією
                 Donation.objects.filter(campaign=instance).delete()
 
                 # Видаляємо саму кампанію (разом із файлами)

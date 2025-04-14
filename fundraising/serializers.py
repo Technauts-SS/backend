@@ -12,6 +12,7 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
     creator_name = serializers.SerializerMethodField()
     creator_email = serializers.SerializerMethodField()
     approved_reports_count = serializers.SerializerMethodField()
+    city_display = serializers.SerializerMethodField()
     
     class Meta:
         model = DonationCampaign
@@ -24,8 +25,12 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
             'creator_name',
             'creator_email',
             'approved_reports_count',
-            'progress'
+            'progress',
+            'city_display'
         ]
+        extra_kwargs = {
+            'city': {'write_only': True}  # Приховуємо city, оскільки використовуємо city_display
+        }
 
     def get_progress(self, obj):
         return obj.progress_percentage()
@@ -44,6 +49,10 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
     
     def get_approved_reports_count(self, obj):
         return obj.reports.filter(status='approved').count()
+    
+    def get_city_display(self, obj):
+        """Повертає читабельну назву міста замість коду"""
+        return obj.get_city_display()
 
     def validate(self, data):
         if not any(data.get(field) for field in ['evidence', 'evidence_file', 'evidence_link']):
@@ -70,22 +79,34 @@ class DonationCampaignSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         try:
             data = super().to_representation(instance)
+            
+            # Додаємо URL повної версії зображення, якщо воно є
+            if data.get('image'):
+                request = self.context.get('request')
+                if request is not None:
+                    data['image'] = request.build_absolute_uri(data['image'])
+            
+            # Додаємо дефолтне зображення, якщо основне відсутнє
             if not data.get('image') and instance.category:
                 data['image'] = self.get_default_image(instance.category)
+            
             return data
         except Exception as e:
             logger.error(f"Serialization error: {str(e)}")
             raise serializers.ValidationError("Помилка серіалізації даних")
 
     def get_default_image(self, category):
+        request = self.context.get('request')
+        base_url = request.build_absolute_uri('/') if request else ''
+        
         category_map = {
-            "health": "/static/defaults/health.png",
-            "social": "/static/defaults/social.png",
-            "education": "/static/defaults/education.png",
-            "ecology": "/static/defaults/ecology.png",
-            "other": "/static/defaults/other.png"
+            "health": f"{base_url}static/defaults/health.png",
+            "social": f"{base_url}static/defaults/social.png",
+            "education": f"{base_url}static/defaults/education.png",
+            "ecology": f"{base_url}static/defaults/ecology.png",
+            "other": f"{base_url}static/defaults/other.png"
         }
-        return category_map.get(category, "/static/defaults/other.png")
+        return category_map.get(category, f"{base_url}static/defaults/other.png")
 
 
 class DonationSerializer(serializers.ModelSerializer):
@@ -95,14 +116,32 @@ class DonationSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(required=False, allow_blank=True)
     anonymous = serializers.BooleanField(required=False, default=True)
     message = serializers.CharField(required=False, allow_blank=True)
+    campaign_title = serializers.SerializerMethodField()
     
     class Meta:
         model = Donation
-        fields = ['id', 'campaign', 'amount', 'status', 'created_at', 
-                 'mock_card_number', 'name', 'email', 'phone', 'anonymous', 'message']
+        fields = [
+            'id', 
+            'campaign', 
+            'campaign_title',
+            'amount', 
+            'status', 
+            'created_at', 
+            'mock_card_number', 
+            'name', 
+            'email', 
+            'phone', 
+            'anonymous', 
+            'message',
+            'payment_method'
+        ]
         extra_kwargs = {
             'status': {'read_only': True},
+            'payment_method': {'required': False, 'default': 'credit_card'}
         }
+    
+    def get_campaign_title(self, obj):
+        return obj.campaign.title if obj.campaign else None
     
     def validate_amount(self, value):
         if value <= 0:
@@ -119,6 +158,11 @@ class DonationSerializer(serializers.ModelSerializer):
         validated_data.pop('phone', None)
         validated_data.pop('anonymous', None)
         validated_data.pop('message', None)
+        
+        # Set user if authenticated
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
         
         # Create the donation
         donation = Donation.objects.create(

@@ -28,7 +28,21 @@ class DonationCampaign(models.Model):
         ("completed", "Завершений"),
         ("cancelled", "Скасований")
     ]
-        
+    CITY_CHOICES = [
+        ("kyiv", "Київ"),
+        ("lviv", "Львів"),
+        ("kharkiv", "Харків"),
+        ("odesa", "Одеса"),
+        ("dnipro", "Дніпро"),
+        ("other", "Інше місто"),
+    ]
+    
+    city = models.CharField(
+        max_length=20,
+        choices=CITY_CHOICES,
+        default="other",
+        verbose_name="Місто"
+    )
     title = models.CharField(max_length=200, verbose_name="Назва кампанії")
     description = models.TextField(verbose_name="Опис")
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default="other")
