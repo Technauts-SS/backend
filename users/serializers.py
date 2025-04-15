@@ -1,55 +1,87 @@
 from rest_framework import serializers
 from .models import User
 import re
-from django.core.validators import validate_email
-     
+import os
 
 class UserSerializer(serializers.ModelSerializer):
+    current_password = serializers.CharField(write_only=True, required=False)
+    new_password = serializers.CharField(write_only=True, required=False)
+    
     class Meta:
         model = User
-        fields = '__all__'
-
-    def validate_phone_number(self, phone_number):
-        if not phone_number:
-            raise serializers.ValidationError('Номер телефону є обов\'язковим.')
-
-        pattern = r'^\+?[1-9]\d{7,14}$'  # Глобальний міжнародний формат
-        if not re.match(pattern, phone_number):
-            raise serializers.ValidationError('Невірний формат телефону. Використовуйте міжнародний формат, наприклад, +380123456789.')
-
-        return phone_number
-
-
-    def validate_email(self, email):
-        if not email:
-            raise serializers.ValidationError("Електронна пошта є обов'язковою.")
+        fields = [
+            'id', 'email', 'full_name', 'phone_number',
+            'password', 'current_password', 'new_password',
+            'social_links', 'image', 'bio', 'role'  # Added 'role' here
+        ]
+        extra_kwargs = {
+            'password': {'write_only': True},
+            'id': {'read_only': True}
+        }
+    
+    def validate_image(self, value):
+        if value:
+            # Максимальний розмір 2MB
+            if value.size > 2 * 1024 * 1024:
+                raise serializers.ValidationError("Розмір файлу не повинен перевищувати 2MB")
+                
+            # Дозволені розширення
+            valid_extensions = ['.jpg', '.jpeg', '.png', '.gif']
+            ext = os.path.splitext(value.name)[1].lower()
+            if ext not in valid_extensions:
+                raise serializers.ValidationError(
+                    "Непідтримуваний формат файлу. Підтримуються: JPG, JPEG, PNG, GIF"
+                )
+        return value
+    
+    def validate_phone_number(self, value):
+        if not re.match(r'^\+?1?\d{10,14}$', value):
+            raise serializers.ValidationError('Невірний формат телефону. Використовуйте +380XXXXXXXXX')
+        return value
+    
+    def validate(self, data):
+        # Перевірка паролів при оновленні
+        if 'new_password' in data and 'current_password' not in data:
+            raise serializers.ValidationError(
+                {"current_password": "Для зміни пароля введіть поточний пароль"}
+            )
         
-        try:
-            validate_email(email)
-        except:
-            raise serializers.ValidationError("Невірний формат електронної пошти.")
+        # Перевірка поточного пароля
+        if 'current_password' in data and self.instance:
+            if not self.instance.check_password(data['current_password']):
+                raise serializers.ValidationError(
+                    {"current_password": "Поточний пароль введено неправильно"}
+                )
         
-        return email
-
-    def validate_social_links(self, social_links):
-        if not social_links:
-            return social_links
+        return data
+    
+    def create(self, validated_data):
+        # Видаляємо поля, які не належать до моделі User
+        validated_data.pop('current_password', None)
+        validated_data.pop('new_password', None)
         
-        if not re.match(r'https?://', social_links):
-            raise serializers.ValidationError("Невірне посилання на соціальну мережу.")
+        password = validated_data.pop('password')
         
-        return social_links
-
-    def validate_avatar(self, avatar):
-        if avatar:
-            valid_extensions = ['jpg', 'jpeg', 'png']
-            file_extension = avatar.name.split('.')[-1].lower()
+        user = User.objects.create_user(
+            **validated_data,
+            password=password
+        )
+        
+        return user
+    
+    def update(self, instance, validated_data):
+        # Обробка зміни пароля
+        if 'new_password' in validated_data:
+            instance.set_password(validated_data['new_password'])
+            validated_data.pop('new_password')
+            validated_data.pop('current_password', None)
+        
+        # Видаляємо поля, які не потрібно оновлювати
+        validated_data.pop('password', None)
+        
+        # Оновлення інших полів
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
             
-            if file_extension not in valid_extensions:
-                raise serializers.ValidationError("Недопустимий формат аватара. Дозволені формати: jpg, jpeg, png.")
-            
-            max_size = 2 * 1024 * 1024  # 2 МБ
-            if avatar.size > max_size:
-                raise serializers.ValidationError("Файл занадто великий. Максимальний розмір: 2 МБ.")
-        
-        return avatar
+        instance.save()
+        return instance

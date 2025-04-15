@@ -1,3 +1,50 @@
 from django.contrib import admin
+from .models import DonationCampaign, Donation
 
-# Register your models here.
+@admin.register(DonationCampaign)
+class DonationCampaignAdmin(admin.ModelAdmin):
+    list_display = ("title", "creator_name", "category", "goal_amount", "status", "created_at")
+    search_fields = ("title", "creator_name", "category", "status")
+    list_filter = ("category", "status")
+    list_per_page = 20  # Display 20 campaigns per page (adjust as needed)
+
+    def goal_amount(self, obj):
+        return f"${obj.goal_amount:,.2f}"  # Formats the goal amount as currency
+    goal_amount.short_description = "Goal Amount"  #  a more readable column name
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            actions['delete_selected'] = (
+                self.delete_selected_action,
+                'delete_selected',
+                "Видалити обрані кампанії"
+            )
+        return actions
+    
+    def delete_selected_action(self, modeladmin, request, queryset):
+        for obj in queryset:
+            obj.delete()
+        self.message_user(request, f"Видалено {queryset.count()} кампаній")
+    
+    def delete_model(self, request, obj):
+        try:
+            obj.delete()
+            self.message_user(request, "Кампанію успішно видалено")
+        except Exception as e:
+            self.message_user(request, f"Помилка: {str(e)}", level='ERROR')
+            
+@admin.register(Donation)
+class MockDonationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'campaign', 'user', 'amount', 'status')
+    list_filter = ('status', 'campaign')
+    actions = ['mark_as_success', 'mark_as_failed']
+    
+    def mark_as_success(self, request, queryset):
+        for donation in queryset:
+            donation.status = 'success'
+            donation.save()
+            donation.campaign.current_amount += donation.amount
+            donation.campaign.save()
+    
+    def mark_as_failed(self, request, queryset):
+        queryset.update(status='failed')
