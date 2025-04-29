@@ -1,62 +1,107 @@
 from rest_framework import serializers
-from .models import DonationCampaign
-import re
+from .models import DonationCampaign, Donation
+from django.utils import timezone
+import logging
 
+logger = logging.getLogger(__name__)
 
 class DonationCampaignSerializer(serializers.ModelSerializer):
+    image = serializers.ImageField(required=False, allow_null=True)
+    progress = serializers.SerializerMethodField()
+    days_left = serializers.SerializerMethodField()
+    creator_name = serializers.SerializerMethodField()
+    creator_email = serializers.SerializerMethodField()
+    approved_reports_count = serializers.SerializerMethodField()
+    
     class Meta:
         model = DonationCampaign
         fields = '__all__'
+        read_only_fields = [
+            'created_at', 
+            'updated_at', 
+            'current_amount',
+            'creator',
+            'creator_name',
+            'creator_email',
+            'approved_reports_count',
+            'progress'
+        ]
 
-    def validate_contact_info(self, contact_info):
-        if not contact_info:
-            raise serializers.ValidationError('Контактна інформація є обов\'язковою.')
-        return contact_info
-
-    def validate_goal_amount(self, goal_amount):
-        if goal_amount is not None and goal_amount < 0:
-            raise serializers.ValidationError('Цільова сума не може бути від\'ємною.')
-        return goal_amount
-
-    def validate_donation_link(self, donation_link):
-        if donation_link and not re.match(r'https?://', donation_link):
-            raise serializers.ValidationError('Посилання має починатися з "http://" або "https://".')
-        return donation_link
-
-    def validate_evidence_file(self, evidence_file):
-        """Перевіряє розмір і формат файлу."""
-        if not evidence_file:
-            return evidence_file
-        
-        valid_extensions = ['jpg', 'jpeg', 'png', 'pdf', 'docx']
-        file_extension = evidence_file.name.split('.')[-1].lower()
-        if file_extension not in valid_extensions:
-            raise serializers.ValidationError("Недопустимий формат файлу. Дозволені формати: jpg, jpeg, png, pdf, docx.")
-
-        max_size = 5 * 1024 * 1024  # 5 МБ
-        if evidence_file.size > max_size:
-            raise serializers.ValidationError("Файл занадто великий. Максимальний розмір: 5 МБ.")
-
-        return evidence_file
-
-    def validate_evidence_link(self, evidence_link):
-        """Перевіряє, чи це правильне посилання."""
-        if evidence_link and not re.match(r'https?://', evidence_link):
-            raise serializers.ValidationError("Невірне посилання на доказ.")
-        return evidence_link
+    def get_progress(self, obj):
+        return obj.progress_percentage()
+    
+    def get_days_left(self, obj):
+        if not obj.ends_at:
+            return None
+        delta = obj.ends_at - timezone.now()
+        return max(0, delta.days)
+    
+    def get_creator_name(self, obj):
+        return obj.creator_name
+    
+    def get_creator_email(self, obj):
+        return obj.creator.email if obj.creator else None
+    
+    def get_approved_reports_count(self, obj):
+        return obj.reports.filter(status='approved').count()
 
     def validate(self, data):
-        """Гарантує, що хоча б одне поле з доказами заповнене."""
         if not any(data.get(field) for field in ['evidence', 'evidence_file', 'evidence_link']):
-            raise serializers.ValidationError("Необхідно надати хоча б один доказ: текст, файл або посилання.")
+            raise serializers.ValidationError("Необхідно надати хоча б один доказ")
+        
+        if data.get('ends_at') and data['ends_at'] < timezone.now():
+            raise serializers.ValidationError("Дата завершення має бути в майбутньому")
+        
+        if data.get('help_type') == "volunteer" and data.get('goal_amount', 0) > 0:
+            raise serializers.ValidationError("Для волонтерської допомоги не вказуйте цільову суму")
+            
         return data
 
+    def create(self, validated_data):
+        # Встановлюємо статус залежно від суми
+        if validated_data.get('goal_amount', 0) < 10000:
+            validated_data['status'] = 'active'
+        else:
+            validated_data['status'] = 'pending'
+            
+        validated_data['creator'] = self.context['request'].user
+        return super().create(validated_data)
+    
+    def to_representation(self, instance):
+        try:
+            data = super().to_representation(instance)
+            if not data.get('image') and instance.category:
+                data['image'] = self.get_default_image(instance.category)
+            return data
+        except Exception as e:
+            logger.error(f"Serialization error: {str(e)}")
+            raise serializers.ValidationError("Помилка серіалізації даних")
 
-    def validate_social_links(self, social_links):
-        if not social_links:
-            return social_links  # Якщо поле пусте, просто повертаємо його
-        
-        if not re.match(r'https?://', social_links):
-            raise serializers.ValidationError("Невірне посилання на соціальну мережу.")
-        
-        return social_links
+    def get_default_image(self, category):
+        category_map = {
+            "health": "/static/defaults/health.png",
+            "social": "/static/defaults/social.png",
+            "education": "/static/defaults/education.png",
+            "ecology": "/static/defaults/ecology.png",
+            "other": "/static/defaults/other.png"
+        }
+        return category_map.get(category, "/static/defaults/other.png")
+
+
+class DonationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Donation
+        fields = ['id', 'campaign', 'amount', 'status', 'created_at']
+        extra_kwargs = {
+            'status': {'read_only': True},
+        }
+    
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Сума має бути більше 0")
+        return value
+    
+    def create(self, validated_data):
+        donation = Donation.objects.create(**validated_data)
+        donation.process_payment()
+        return donation
